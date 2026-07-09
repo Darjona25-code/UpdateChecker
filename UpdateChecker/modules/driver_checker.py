@@ -1,5 +1,5 @@
 import subprocess
-import re
+import json
 
 
 def _run_powershell(script):
@@ -17,95 +17,128 @@ def _run_powershell(script):
         return {"success": False, "error": str(e)}
 
 
+CLASS_CATEGORY_MAP = {
+    "Display": "Display",
+    "Network": "Network",
+    "Net": "Network",
+    "Audio": "Audio",
+    "Media": "Audio",
+    "System": "Chipset",
+    "CPU": "Chipset",
+    "Power": "Chipset",
+    "Battery": "Chipset",
+    "DiskDrive": "Storage",
+    "Storage": "Storage",
+    "HDC": "Storage",
+    "SCSIAdapter": "Storage",
+    "USB": "USB",
+    "USBDevice": "USB",
+    "Ports": "USB",
+    "Printer": "Printers",
+    "Bluetooth": "Bluetooth",
+    "Keyboard": "Input",
+    "Mouse": "Input",
+    "HIDClass": "Input",
+    "Point": "Input",
+    "Camera": "Camera",
+    "Image": "Camera",
+    "FDC": "Other",
+    "CDROM": "Other",
+    "Volume": "Other",
+    "Computer": "Other",
+    "SoftwareDevice": "Other",
+    "Extension": "Other",
+    "Sensor": "Other",
+    "Biometric": "Other",
+    "SmartCard": "Other",
+    "Security": "Other",
+    "Tpm": "Other",
+}
+
+
+def map_class_to_category(device_class):
+    if not device_class:
+        return "Other"
+    for key, cat in CLASS_CATEGORY_MAP.items():
+        if key.lower() in device_class.lower() or device_class.lower() in key.lower():
+            return cat
+    return "Other"
+
+
 def check_driver_updates():
     all_drivers = []
 
+    devices = _get_pnp_devices()
+    all_drivers.extend(devices)
+
+    wu_drivers = _check_windows_update_drivers()
+    existing_names = {d["name"] for d in all_drivers}
+
+    for wu_d in wu_drivers:
+        if wu_d["name"] not in existing_names:
+            all_drivers.append(wu_d)
+
+    return all_drivers
+
+
+def _get_pnp_devices():
     ps_script = """
-    $drivers = Get-WindowsDriver -Online -ErrorAction SilentlyContinue
+    $devices = Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue |
+        Where-Object { $_.Class -ne 'SoftwareDevice' -and $_.Status -eq 'OK' -and $_.FriendlyName -ne $null }
     $result = @()
-    foreach ($d in $drivers) {
+    foreach ($d in $devices) {
+        $driverVer = Get-PnpDeviceProperty -InstanceId $d.InstanceId -KeyName '{a8b865dd-2e3d-4094-ad97-e593a70c75d6},7' -ErrorAction SilentlyContinue
+        $driverProvider = Get-PnpDeviceProperty -InstanceId $d.InstanceId -KeyName '{a8b865dd-2e3d-4094-ad97-e593a70c75d6},6' -ErrorAction SilentlyContinue
         $result += [PSCustomObject]@{
-            DriverName = $d.Driver
-            ProviderName = $d.ProviderName
-            Version = $d.Version
-            ClassName = $d.ClassName
-            BootCritical = $d.BootCritical
-            OriginalFileName = $d.OriginalFileName
+            DeviceName = $d.FriendlyName
+            Class = if ($d.Class) { $d.Class } else { 'Other' }
+            DriverVersion = if ($driverVer.Data) { $driverVer.Data } else { 'N/A' }
+            DriverProvider = if ($driverProvider.Data) { $driverProvider.Data } else { 'Unknown' }
         }
     }
     $result | ConvertTo-Json -Compress
     """
 
-    ps_result = _run_powershell(ps_script)
-    if ps_result["success"] and ps_result["stdout"].strip():
+    result = _run_powershell(ps_script)
+    devices = []
+
+    if result["success"] and result["stdout"].strip():
         try:
-            import json
-            drivers = json.loads(ps_result["stdout"])
-            if not isinstance(drivers, list):
-                drivers = [drivers]
-            for d in drivers:
-                if isinstance(d, dict):
-                    all_drivers.append({
-                        "name": d.get("DriverName", "Unknown"),
-                        "provider": d.get("ProviderName", "Unknown"),
-                        "version": d.get("Version", "Unknown"),
-                        "class": d.get("ClassName", "Unknown"),
+            data = json.loads(result["stdout"])
+            if not isinstance(data, list):
+                data = [data]
+            for d in data:
+                if isinstance(d, dict) and d.get("DeviceName"):
+                    device_class = d.get("Class", "Other")
+                    devices.append({
+                        "name": d["DeviceName"],
+                        "provider": d.get("DriverProvider", "Unknown"),
+                        "version": d.get("DriverVersion", "N/A"),
+                        "class": device_class,
+                        "category": map_class_to_category(device_class),
                         "type": "driver"
                     })
         except json.JSONDecodeError:
             pass
 
-    ps_device_script = """
-    $devices = Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue | Where-Object { $_.Class -ne 'SoftwareDevice' -and $_.Status -eq 'OK' }
-    $result = @()
-    foreach ($d in $devices) {
-        $driver = Get-PnpDeviceProperty -InstanceId $d.InstanceId -KeyName '{a8b865dd-2e3d-4094-ad97-e593a70c75d6},6' -ErrorAction SilentlyContinue
-        $driverVer = Get-PnpDeviceProperty -InstanceId $d.InstanceId -KeyName '{a8b865dd-2e3d-4094-ad97-e593a70c75d6},7' -ErrorAction SilentlyContinue
-        $result += [PSCustomObject]@{
-            DeviceName = $d.FriendlyName
-            Class = $d.Class
-            Status = $d.Status
-            DriverVersion = if ($driverVer.Data) { $driverVer.Data } else { 'N/A' }
-            DriverProvider = if ($driver.Data) { $driver.Data } else { 'N/A' }
-        }
-    }
-    $result | ConvertTo-Json -Compress
-    """
+    return devices
 
-    ps_device_result = _run_powershell(ps_device_script)
-    if ps_device_result["success"] and ps_device_result["stdout"].strip():
-        try:
-            import json
-            devices = json.loads(ps_device_result["stdout"])
-            if not isinstance(devices, list):
-                devices = [devices]
-            for d in devices:
-                if isinstance(d, dict) and d.get("DeviceName"):
-                    existing = next((x for x in all_drivers if x["name"] == d["DeviceName"]), None)
-                    if not existing:
-                        all_drivers.append({
-                            "name": d["DeviceName"],
-                            "provider": d.get("DriverProvider", "Unknown"),
-                            "version": d.get("DriverVersion", "Unknown"),
-                            "class": d.get("Class", "Unknown"),
-                            "type": "driver"
-                        })
-        except json.JSONDecodeError:
-            pass
 
-    ps_wu_script = """
+def _check_windows_update_drivers():
+    ps_script = """
     try {
         $updateSession = New-Object -ComObject Microsoft.Update.Session
         $updateSearcher = $updateSession.CreateUpdateSearcher()
         $searchResult = $updateSearcher.Search("IsInstalled=0 and Type='Driver'")
         $result = @()
         foreach ($update in $searchResult.Updates) {
+            $categories = @()
+            foreach ($cat in $update.Categories) {
+                $categories += $cat.Name
+            }
             $result += [PSCustomObject]@{
                 Title = $update.Title
-                Description = $update.Description
-                IsDownloaded = $update.IsDownloaded
-                IsMandatory = $update.IsMandatory
-                KBArticleIDs = ($update.KBArticleIDs -join ',')
+                Categories = ($categories -join '; ')
             }
         }
         if ($result.Count -gt 0) { $result | ConvertTo-Json -Compress } else { '[]' }
@@ -114,66 +147,52 @@ def check_driver_updates():
     }
     """
 
-    ps_wu_result = _run_powershell(ps_wu_script)
-    if ps_wu_result["success"] and ps_wu_result["stdout"].strip():
-        try:
-            import json
-            wu_updates = json.loads(ps_wu_result["stdout"])
-            if not isinstance(wu_updates, list):
-                wu_updates = [wu_updates]
-            for u in wu_updates:
-                if isinstance(u, dict) and u.get("Title"):
-                    existing = next((x for x in all_drivers if x["name"] == u["Title"]), None)
-                    if not existing:
-                        all_drivers.append({
-                            "name": u["Title"],
-                            "provider": "Windows Update",
-                            "version": "N/A",
-                            "class": "Windows Update Driver",
-                            "type": "driver",
-                            "available": "Available"
-                        })
-        except json.JSONDecodeError:
-            pass
-
-    if not all_drivers:
-        fallback_drivers = _get_fallback_drivers()
-        all_drivers.extend(fallback_drivers)
-
-    return all_drivers
-
-
-def _get_fallback_drivers():
-    fallback = []
-    ps_script = """
-    Get-CimInstance -ClassName Win32_PnPSignedDriver | Select-Object DeviceName, DriverVersion, DriverProviderName, ClassName | ConvertTo-Json -Compress
-    """
     result = _run_powershell(ps_script)
+    drivers = []
+
     if result["success"] and result["stdout"].strip():
         try:
-            import json
-            devices = json.loads(result["stdout"])
-            if not isinstance(devices, list):
-                devices = [devices]
-            for d in devices:
-                if isinstance(d, dict) and d.get("DeviceName"):
-                    fallback.append({
-                        "name": d["DeviceName"],
-                        "provider": d.get("DriverProviderName", "Unknown"),
-                        "version": d.get("DriverVersion", "Unknown"),
-                        "class": d.get("ClassName", "Unknown"),
+            data = json.loads(result["stdout"])
+            if not isinstance(data, list):
+                data = [data]
+            for u in data:
+                if isinstance(u, dict) and u.get("Title"):
+                    cat_name = u.get("Categories", "Other") or "Other"
+                    drivers.append({
+                        "name": u["Title"],
+                        "provider": "Windows Update",
+                        "version": "Available",
+                        "class": cat_name,
+                        "category": map_class_to_category(cat_name),
                         "type": "driver"
                     })
         except json.JSONDecodeError:
             pass
-    return fallback
+
+    return drivers
+
+
+CATEGORY_ORDER = ["Display", "Network", "Audio", "Chipset", "Storage", "USB", "Bluetooth", "Printers", "Camera", "Input", "Other"]
+
+
+def get_category_order():
+    return CATEGORY_ORDER
+
+
+def group_drivers_by_category(drivers):
+    grouped = {}
+    for cat in CATEGORY_ORDER:
+        grouped[cat] = []
+    for d in drivers:
+        cat = d.get("category", "Other")
+        if cat not in grouped:
+            cat = "Other"
+        grouped[cat].append(d)
+    return grouped
 
 
 def get_driver_categories():
-    return [
-        "Display", "Network", "Audio", "System", "Storage", "USB",
-        "Printer", "Bluetooth", "Keyboard", "Mouse", "Other"
-    ]
+    return list(CATEGORY_ORDER)
 
 
 def install_driver_update(driver_name):

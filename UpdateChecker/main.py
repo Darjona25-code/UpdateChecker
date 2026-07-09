@@ -338,8 +338,11 @@ class UpdateCheckerApp:
         self.cancel_btn = ttk.Button(check_frame, text="Cancel", command=self.cancel_operation, width=15, state=DISABLED)
         self.cancel_btn.pack(side=LEFT, padx=5)
 
-        self.reselect_btn = ttk.Button(check_frame, text="Deselect All", command=self.deselect_all, width=15)
-        self.reselect_btn.pack(side=LEFT, padx=5)
+        self.select_all_btn = ttk.Button(check_frame, text="Select All", command=self.select_all, width=12)
+        self.select_all_btn.pack(side=LEFT, padx=2)
+
+        self.deselect_btn = ttk.Button(check_frame, text="Deselect All", command=self.deselect_all, width=14)
+        self.deselect_btn.pack(side=LEFT, padx=2)
 
         notebook = ttk.Notebook(main_frame)
         notebook.pack(fill=BOTH, expand=True, pady=(0, 10))
@@ -372,20 +375,18 @@ class UpdateCheckerApp:
         drivers_frame = ttk.Frame(notebook, padding=5)
         notebook.add(drivers_frame, text="Driver Updates")
 
-        drv_columns = ("select", "name", "provider", "version", "class")
-        self.drv_tree = ttk.Treeview(drivers_frame, columns=drv_columns, show="headings", selectmode="none", height=10)
+        drv_columns = ("select", "provider", "version")
+        self.drv_tree = ttk.Treeview(drivers_frame, columns=drv_columns, show="tree headings", selectmode="none", height=10)
 
+        self.drv_tree.heading("#0", text="Driver Name")
         self.drv_tree.heading("select", text="")
-        self.drv_tree.heading("name", text="Driver Name")
         self.drv_tree.heading("provider", text="Provider")
         self.drv_tree.heading("version", text="Version")
-        self.drv_tree.heading("class", text="Class")
 
+        self.drv_tree.column("#0", width=350, minwidth=250)
         self.drv_tree.column("select", width=40, anchor=CENTER)
-        self.drv_tree.column("name", width=300)
-        self.drv_tree.column("provider", width=150)
+        self.drv_tree.column("provider", width=180)
         self.drv_tree.column("version", width=120)
-        self.drv_tree.column("class", width=150)
 
         self.drv_tree.bind("<ButtonRelease-1>", self.on_drv_click)
 
@@ -471,12 +472,29 @@ class UpdateCheckerApp:
             self.install_btn.config(state=NORMAL if has_selection else DISABLED)
             self.cancel_btn.config(state=DISABLED)
 
+    def select_all(self):
+        self.selected_updates = []
+        for u in self.available_updates:
+            if u not in self.selected_updates:
+                self.selected_updates.append(u)
+
+        for item in self.prog_tree.get_children():
+            self.prog_tree.set(item, "select", "☑")
+
+        for cat_item in self.drv_tree.get_children():
+            for child in self.drv_tree.get_children(cat_item):
+                self.drv_tree.set(child, "select", "☑")
+
+        self.install_btn.config(state=NORMAL)
+        self.set_status(f"Selected {len(self.selected_updates)} update(s).")
+
     def deselect_all(self):
         self.selected_updates = []
         for item in self.prog_tree.get_children():
             self.prog_tree.set(item, "select", "")
-        for item in self.drv_tree.get_children():
-            self.drv_tree.set(item, "select", "")
+        for cat_item in self.drv_tree.get_children():
+            for child in self.drv_tree.get_children(cat_item):
+                self.drv_tree.set(child, "select", "")
         self.install_btn.config(state=DISABLED)
         self.set_status("All selections cleared.")
 
@@ -502,20 +520,39 @@ class UpdateCheckerApp:
 
     def on_drv_click(self, event):
         item = self.drv_tree.identify_row(event.y)
-        if item:
-            values = self.drv_tree.item(item, "values")
-            current = self.drv_tree.set(item, "select")
-            name = values[1] if len(values) > 1 else ""
-            if current == "☑":
-                self.drv_tree.set(item, "select", "")
-                self.selected_updates = [u for u in self.selected_updates if u.get("name") != name]
-            else:
-                self.drv_tree.set(item, "select", "☑")
-                for u in self.available_updates:
-                    if u.get("name") == name and u.get("type") == "driver" and u not in self.selected_updates:
-                        self.selected_updates.append(u)
-                        break
+        if not item:
+            return
+
+        parent = self.drv_tree.parent(item)
+
+        if not parent:
+            for child in self.drv_tree.get_children(item):
+                current = self.drv_tree.set(child, "select")
+                name = self.drv_tree.item(child, "text")
+                if current == "☑":
+                    self.drv_tree.set(child, "select", "")
+                    self.selected_updates = [u for u in self.selected_updates if u.get("name") != name]
+                else:
+                    self.drv_tree.set(child, "select", "☑")
+                    for u in self.available_updates:
+                        if u.get("name") == name and u.get("type") == "driver" and u not in self.selected_updates:
+                            self.selected_updates.append(u)
+                            break
             self.refresh_selection_btn()
+            return
+
+        current = self.drv_tree.set(item, "select")
+        name = self.drv_tree.item(item, "text")
+        if current == "☑":
+            self.drv_tree.set(item, "select", "")
+            self.selected_updates = [u for u in self.selected_updates if u.get("name") != name]
+        else:
+            self.drv_tree.set(item, "select", "☑")
+            for u in self.available_updates:
+                if u.get("name") == name and u.get("type") == "driver" and u not in self.selected_updates:
+                    self.selected_updates.append(u)
+                    break
+        self.refresh_selection_btn()
 
     def check_for_updates(self):
         if self.is_checking:
@@ -595,14 +632,20 @@ class UpdateCheckerApp:
                 u.get("source", "")
             ))
 
-        for u in drv_updates:
-            self.drv_tree.insert("", END, values=(
-                "",
-                u.get("name", ""),
-                u.get("provider", ""),
-                u.get("version", ""),
-                u.get("class", "")
-            ))
+        from modules.driver_checker import group_drivers_by_category, CATEGORY_ORDER
+        grouped = group_drivers_by_category(drv_updates)
+
+        for cat in CATEGORY_ORDER:
+            devices = grouped.get(cat, [])
+            if not devices:
+                continue
+            cat_id = self.drv_tree.insert("", END, text=f"  {cat}  ({len(devices)})", values=("", "", ""), open=True)
+            for d in devices:
+                self.drv_tree.insert(cat_id, END, text=d.get("name", ""), values=(
+                    "",
+                    d.get("provider", ""),
+                    d.get("version", "")
+                ))
 
         self.set_count(len(prog_updates), len(drv_updates))
         self.update_btn_states(checking=False)
@@ -685,8 +728,9 @@ class UpdateCheckerApp:
         self.selected_updates = []
         for item in self.prog_tree.get_children():
             self.prog_tree.set(item, "select", "")
-        for item in self.drv_tree.get_children():
-            self.drv_tree.set(item, "select", "")
+        for cat_item in self.drv_tree.get_children():
+            for child in self.drv_tree.get_children(cat_item):
+                self.drv_tree.set(child, "select", "")
 
     def cancel_operation(self):
         self.update_manager.cancel()

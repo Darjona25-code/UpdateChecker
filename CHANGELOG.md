@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.1.0] - 2026-07-09
+
+### Added
+- Select All button to quickly select all available updates
+- Hierarchical driver treeview grouped by category (Display, Network, Audio, etc.)
+
+### Fixed
+- Driver detection no longer shows individual filenames; now displays real device names grouped by category
+
 ## [1.0.0] - 2026-07-09
 
 ### Added
