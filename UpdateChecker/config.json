@@ -1,0 +1,30 @@
+{
+  "app_name": "UpdateChecker",
+  "version": "1.0.0",
+  "synology": {
+    "quickconnect_id": "",
+    "username": "",
+    "password": "",
+    "remote_path": "/UpdateChecker/update_history.db",
+    "auto_sync": false
+  },
+  "github": {
+    "repo_name": "UpdateChecker-Backup",
+    "personal_access_token": "",
+    "branch": "main",
+    "auto_sync": false
+  },
+  "preferences": {
+    "check_programs": true,
+    "check_drivers": true,
+    "create_restore_points": true,
+    "notifications_enabled": true,
+    "auto_check_on_start": false,
+    "track_computer_name": true
+  },
+  "window": {
+    "width": 1000,
+    "height": 700,
+    "theme": "dark"
+  }
+}

@@ -1,0 +1,35 @@
+# UpdateChecker specific
+update_history.db
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Build output
+dist/
+build/
+*.exe
+*.spec
+__pycache__/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+*.egg
+.eggs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Config with secrets (keep template, ignore actual)
+# config.json  # Uncomment if you want to keep config private
