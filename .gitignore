@@ -9,7 +9,7 @@ update_history.db
 dist/
 build/
 *.exe
-*.spec
+# *.spec  # Uncomment to ignore all .spec files
 __pycache__/
 
 # Python
