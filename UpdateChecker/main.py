@@ -680,12 +680,17 @@ class UpdateCheckerApp:
         if not result:
             return
 
+        updates_to_install = list(self.selected_updates)
+
         self.update_btn_states(installing=True)
         self.progress_bar.configure(mode="determinate", maximum=count, value=0)
         self.set_status(f"Installing {count} update(s)...")
 
+        self.prog_tree.unbind("<ButtonRelease-1>")
+        self.drv_tree.unbind("<ButtonRelease-1>")
+
         self.update_manager.install_updates(
-            self.selected_updates,
+            updates_to_install,
             progress_callback=self.on_install_progress,
             status_callback=self.on_install_status,
             finished_callback=self.on_install_finished
@@ -701,6 +706,9 @@ class UpdateCheckerApp:
     def on_install_finished(self, results, cancelled=False):
         self.update_btn_states(installing=False)
         self.progress_bar.configure(value=0)
+
+        self.prog_tree.bind("<ButtonRelease-1>", self.on_prog_click)
+        self.drv_tree.bind("<ButtonRelease-1>", self.on_drv_click)
 
         if cancelled:
             self.set_status("Installation cancelled.")

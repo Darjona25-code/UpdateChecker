@@ -66,19 +66,7 @@ def map_class_to_category(device_class):
 
 
 def check_driver_updates():
-    all_drivers = []
-
-    devices = _get_pnp_devices()
-    all_drivers.extend(devices)
-
-    wu_drivers = _check_windows_update_drivers()
-    existing_names = {d["name"] for d in all_drivers}
-
-    for wu_d in wu_drivers:
-        if wu_d["name"] not in existing_names:
-            all_drivers.append(wu_d)
-
-    return all_drivers
+    return _check_windows_update_drivers()
 
 
 def _get_pnp_devices():
