@@ -75,5 +75,5 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     uac_admin=True,
-    icon='assets/icon.ico',
+    icon='assets/CazaBytes.ico',
 )
